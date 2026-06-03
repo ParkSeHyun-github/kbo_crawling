@@ -11,3 +11,5 @@
 
 ## 인터페이스
 ![Screenshot](screenshot.png)
+
+![Screenshot2](screenshot_charts.png)
