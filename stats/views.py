@@ -16,6 +16,9 @@ from django.conf import settings
 MODEL_DIR = os.path.join(settings.BASE_DIR, 'ml_models')
 os.makedirs(MODEL_DIR, exist_ok=True)
 
+# 프로세스 메모리 캐시 — 디스크 로드도 1회만
+_mem_cache = {}
+
 
 def _model_path(model_type, min_games):
     return os.path.join(MODEL_DIR, f'{model_type}_{min_games}.pkl')
@@ -32,24 +35,33 @@ def _current_count(model_type):
 
 
 def get_cached_model(model_type, min_games, build_fn):
-    """디스크 캐시 우선 — DB 데이터 수 변경 시에만 재학습"""
+    """메모리 → 디스크 → 재학습 순서로 캐시 확인"""
+    count = _current_count(model_type)
+    mem_key = (model_type, min_games, count)
+
+    # 1) 메모리 캐시 (가장 빠름)
+    if mem_key in _mem_cache:
+        return _mem_cache[mem_key]
+
     mp = _model_path(model_type, min_games)
     meta_p = _meta_path(model_type, min_games)
-    count = _current_count(model_type)
 
-    # 메타 파일로 저장 시점 카운트 확인
+    # 2) 디스크 캐시
     if os.path.exists(mp) and os.path.exists(meta_p):
         with open(meta_p) as f:
             meta = json.load(f)
         if meta.get('count') == count:
-            return joblib.load(mp)   # ✅ 디스크에서 즉시 로드
+            result = joblib.load(mp)
+            _mem_cache[mem_key] = result
+            return result
 
-    # 재학습 필요
+    # 3) 재학습 후 디스크 + 메모리에 저장
     result = build_fn(min_games)
     if result:
-        joblib.dump(result, mp)
+        joblib.dump(result, mp, compress=3)
         with open(meta_p, 'w') as f:
             json.dump({'count': count}, f)
+        _mem_cache[mem_key] = result
     return result
 
 from django.http import JsonResponse
@@ -313,19 +325,22 @@ def predict(request):
         batter_scores = batter_result['scores']
         scaler = batter_result['scaler']
         models = batter_result['models']
-        current_batters = Batter.objects.filter(season=season, games__gte=min_batter_games)
+        current_batters = list(Batter.objects.filter(season=season, games__gte=min_batter_games))
 
-        for b in current_batters:
-            xs = scaler.transform([batter_features(b)])
+        # 배치 예측 — predict() 1번 호출로 전체 처리
+        feat_matrix = np.array([batter_features(b) for b in current_batters])
+        Xs = scaler.transform(feat_matrix)
+        pred_avg = models['avg'].predict(Xs)
+        pred_hr  = models['hr'].predict(Xs)
+        pred_rbi = models['rbi'].predict(Xs)
+
+        for i, b in enumerate(current_batters):
             batter_predictions.append({
-                'name': b.name,
-                'team': b.team,
-                'cur_avg': round(b.avg, 3),
-                'cur_hr': b.hr,
-                'cur_rbi': b.rbi,
-                'pred_avg': round(float(models['avg'].predict(xs)[0]), 3),
-                'pred_hr': max(0, round(float(models['hr'].predict(xs)[0]))),
-                'pred_rbi': max(0, round(float(models['rbi'].predict(xs)[0]))),
+                'name': b.name, 'team': b.team,
+                'cur_avg': round(b.avg, 3), 'cur_hr': b.hr, 'cur_rbi': b.rbi,
+                'pred_avg': round(float(pred_avg[i]), 3),
+                'pred_hr':  max(0, round(float(pred_hr[i]))),
+                'pred_rbi': max(0, round(float(pred_rbi[i]))),
             })
         batter_predictions.sort(key=lambda x: x['pred_avg'], reverse=True)
 
@@ -336,28 +351,31 @@ def predict(request):
 
     if pitcher_result:
         pitcher_scores = pitcher_result['scores']
-        current_pitchers = Pitcher.objects.filter(season=season, games__gte=min_pitcher_games)
+        current_pitchers = list(Pitcher.objects.filter(season=season, games__gte=min_pitcher_games))
 
-        for p in current_pitchers:
-            is_reliever = p.saves > p.wins
-            group = pitcher_result['rp'] if is_reliever else pitcher_result['sp']
+        # 선발/구원 분리 후 각각 배치 예측
+        for role_key, is_rel in [('sp', False), ('rp', True)]:
+            group = pitcher_result[role_key]
             if not group:
-                group = pitcher_result['rp'] or pitcher_result['sp']
+                continue
+            subset = [p for p in current_pitchers if (p.saves > p.wins) == is_rel]
+            if not subset:
+                continue
+            feat_matrix = np.array([pitcher_features(p) for p in subset])
+            Xs = group['scaler'].transform(feat_matrix)
+            pred_era  = group['models']['era'].predict(Xs)
+            pred_whip = group['models']['whip'].predict(Xs)
+            pred_so   = group['models']['strikeouts'].predict(Xs)
 
-            feats = pitcher_features(p)
-            xs = group['scaler'].transform([feats])
-            models = group['models']
-            pitcher_predictions.append({
-                'name': p.name,
-                'team': p.team,
-                'role': '구원' if is_reliever else '선발',
-                'cur_era': round(p.era, 2),
-                'cur_whip': round(p.whip, 2),
-                'cur_so': p.strikeouts,
-                'pred_era': round(max(0, float(models['era'].predict(xs)[0])), 2),
-                'pred_whip': round(max(0, float(models['whip'].predict(xs)[0])), 2),
-                'pred_so': max(0, round(float(models['strikeouts'].predict(xs)[0]))),
-            })
+            for i, p in enumerate(subset):
+                pitcher_predictions.append({
+                    'name': p.name, 'team': p.team,
+                    'role': '구원' if is_rel else '선발',
+                    'cur_era': round(p.era, 2), 'cur_whip': round(p.whip, 2), 'cur_so': p.strikeouts,
+                    'pred_era':  round(max(0, float(pred_era[i])), 2),
+                    'pred_whip': round(max(0, float(pred_whip[i])), 2),
+                    'pred_so':   max(0, round(float(pred_so[i]))),
+                })
         pitcher_predictions.sort(key=lambda x: x['pred_era'])
 
     return render(request, 'stats/predict.html', {
