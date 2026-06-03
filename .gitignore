@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 db.sqlite3
 crawl_status.json
+crawl_log.json
 crawler/html_dump.txt
 crawler/crawl_result.txt
 crawler/standing_result.txt

@@ -75,7 +75,15 @@ SEASONS = list(range(2026, 2014, -1))
 BATTER_MIN_GAMES_DEFAULT = 30
 PITCHER_MIN_GAMES_DEFAULT = 10
 
-STATUS_FILE = os.path.join(settings.BASE_DIR, 'crawl_status.json')
+STATUS_FILE   = os.path.join(settings.BASE_DIR, 'crawl_status.json')
+CRAWL_LOG_FILE = os.path.join(settings.BASE_DIR, 'crawl_log.json')
+
+
+def read_crawl_log():
+    if not os.path.exists(CRAWL_LOG_FILE):
+        return {}
+    with open(CRAWL_LOG_FILE, encoding='utf-8') as f:
+        return json.load(f)
 
 
 # ── 크롤링 상태 파일 헬퍼 ──────────────────────────────────────────
@@ -127,7 +135,9 @@ def crawl_start(request):
 
 
 def crawl_status(request):
-    return JsonResponse(read_status())
+    data = read_status()
+    data['log'] = read_crawl_log()
+    return JsonResponse(data)
 
 
 # ── 일반 뷰 ──────────────────────────────────────────────────────

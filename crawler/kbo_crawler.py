@@ -224,6 +224,40 @@ def save_standings(season, rows):
     print(f"팀 순위 {count}팀 저장 완료")
 
 
+CRAWL_LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'crawl_log.json')
+CRAWL_INTERVAL_HOURS = 24  # 이 시간 이내에 크롤링한 시즌은 스킵
+
+
+def load_crawl_log():
+    if os.path.exists(CRAWL_LOG_FILE):
+        with open(CRAWL_LOG_FILE, encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+
+def save_crawl_log(log):
+    with open(CRAWL_LOG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(log, f, ensure_ascii=False)
+
+
+def is_fresh(season):
+    """해당 시즌이 CRAWL_INTERVAL_HOURS 이내에 크롤링됐으면 True"""
+    log = load_crawl_log()
+    last = log.get(str(season))
+    if not last:
+        return False
+    from datetime import datetime, timedelta
+    last_dt = datetime.strptime(last, '%Y-%m-%d %H:%M:%S')
+    return datetime.now() - last_dt < timedelta(hours=CRAWL_INTERVAL_HOURS)
+
+
+def mark_crawled(season):
+    from datetime import datetime
+    log = load_crawl_log()
+    log[str(season)] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    save_crawl_log(log)
+
+
 def update_status(state, message):
     status_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'crawl_status.json')
     data = {}
@@ -280,7 +314,21 @@ if __name__ == '__main__':
     else:
         seasons = [2026]
 
-    print(f"크롤링 시즌: {seasons}")
+    # 이미 크롤링된 시즌 필터링
+    to_crawl = [s for s in seasons if not is_fresh(s)]
+    skipped  = [s for s in seasons if is_fresh(s)]
+
+    if skipped:
+        log = load_crawl_log()
+        for s in skipped:
+            print(f"[SKIP] {s}시즌 — 마지막 크롤링: {log.get(str(s))} (24시간 이내)")
+
+    if not to_crawl:
+        update_status('done', f'모든 시즌이 최신 상태입니다.')
+        print("크롤링할 시즌 없음. 완료!")
+        sys.exit(0)
+
+    print(f"크롤링 대상: {to_crawl}")
 
     try:
         all_data = {}
@@ -288,8 +336,8 @@ if __name__ == '__main__':
             browser = p.chromium.launch(headless=True)
             pw_page = browser.new_page()
 
-            for i, season in enumerate(seasons, 1):
-                print(f"\n[{i}/{len(seasons)}] {season}시즌 수집 시작")
+            for i, season in enumerate(to_crawl, 1):
+                print(f"\n[{i}/{len(to_crawl)}] {season}시즌 수집 시작")
                 all_data[season] = fetch_season(pw_page, season)
 
             browser.close()
@@ -297,8 +345,10 @@ if __name__ == '__main__':
         # playwright 종료 후 DB 저장
         for season, data in all_data.items():
             save_season(season, *data)
+            mark_crawled(season)
 
-        update_status('done', f'{seasons[0]}~{seasons[-1]}시즌 크롤링 완료')
+        label = f'{to_crawl[0]}~{to_crawl[-1]}' if len(to_crawl) > 1 else str(to_crawl[0])
+        update_status('done', f'{label}시즌 크롤링 완료')
         print("\n전체 완료!")
 
     except Exception as e:

@@ -88,17 +88,30 @@
     const fromSel  = document.getElementById('crawl-from');
     const toSel    = document.getElementById('crawl-to');
 
+    function updateSeasonHints(log) {
+        document.querySelectorAll('#crawl-from option, #crawl-to option').forEach(opt => {
+            const y = opt.value;
+            if (log && log[y]) {
+                const t = log[y].slice(5, 16); // MM-DD HH:mm
+                opt.textContent = y + ' ✅' + t;
+            } else {
+                opt.textContent = y;
+            }
+        });
+    }
+
     function checkStatus() {
         fetch('/crawl/status/')
             .then(r => r.json())
             .then(data => {
+                updateSeasonHints(data.log);
                 if (data.state === 'running') {
                     btn.disabled = true;
                     msg.textContent = '⏳ ' + data.message;
                     setTimeout(checkStatus, 3000);
                 } else if (data.state === 'done') {
                     btn.disabled = false;
-                    msg.textContent = '✅ ' + data.finished_at + ' 완료';
+                    msg.textContent = '✅ ' + (data.finished_at || '') + ' 완료';
                     location.reload();
                 } else if (data.state === 'error') {
                     btn.disabled = false;
@@ -106,6 +119,9 @@
                 }
             });
     }
+
+    // 페이지 로드 시 힌트 표시
+    fetch('/crawl/status/').then(r => r.json()).then(d => updateSeasonHints(d.log));
 
     btn.addEventListener('click', () => {
         const from = fromSel.value;
