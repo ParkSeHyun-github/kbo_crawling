@@ -2,9 +2,10 @@
 
 {% block content %}
 <h2 style="margin-bottom: 4px;">{{ next_season }}시즌 성적 예측</h2>
-<p style="color:#888; font-size:13px; margin-bottom:16px;">
+<p style="color:#888; font-size:13px; margin-bottom:4px;">
     {{ season }}시즌 현재 성적 기반 / 과거 연속 시즌 데이터로 학습한 선형회귀 모델
 </p>
+<p style="color:#e65100; font-size:12px; margin-bottom:16px;">⚠ 첫 접속 시 모델 학습으로 소요시간이 있습니다.</p>
 
 <form class="search-bar" method="get">
     <select name="season" onchange="this.form.submit()">
