@@ -1,0 +1,123 @@
+{% extends 'stats/base.html' %}
+
+{% block content %}
+<h2 style="margin-bottom: 16px;">시각화 분석 — {{ season }}시즌</h2>
+
+<form class="search-bar" method="get">
+    <select name="season" onchange="this.form.submit()">
+        {% for y in seasons %}
+        <option value="{{ y }}" {% if y == season %}selected{% endif %}>{{ y }}시즌</option>
+        {% endfor %}
+    </select>
+    <label style="font-size:13px; color:#555;">타자 최소</label>
+    <input type="number" name="min_batter_games" value="{{ min_batter_games }}" min="0" max="144" style="width:60px; padding:6px; border:1px solid #ccc; border-radius:4px;">
+    <label style="font-size:13px; color:#555;">투수 최소</label>
+    <input type="number" name="min_pitcher_games" value="{{ min_pitcher_games }}" min="0" max="144" style="width:60px; padding:6px; border:1px solid #ccc; border-radius:4px;">
+    <button type="submit">적용</button>
+</form>
+
+<div class="chart-grid">
+
+    <!-- 팀별 ERA vs 타율 산포도 -->
+    <div class="chart-card wide">
+        <h3>팀별 평균 타율 vs ERA</h3>
+        <p class="chart-desc">오른쪽 아래일수록 타선 강하고 마운드도 좋은 팀</p>
+        <canvas id="scatterChart"></canvas>
+    </div>
+
+    <!-- 홈런 Top10 -->
+    <div class="chart-card">
+        <h3>홈런 Top 10</h3>
+        <canvas id="hrChart"></canvas>
+    </div>
+
+    <!-- 타율 분포 히스토그램 -->
+    <div class="chart-card">
+        <h3>타율 분포</h3>
+        <canvas id="histChart"></canvas>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+<script>
+const SCATTER_DATA = {{ scatter_data|safe }};
+const TOP_HR       = {{ top_hr|safe }};
+const HIST_LABELS  = {{ hist_labels|safe }};
+const HIST_DATA    = {{ hist_data|safe }};
+
+const TEAM_COLORS = {
+    'LG':'#C30452','삼성':'#074CA1','KT':'#000000','KIA':'#EA0029',
+    '한화':'#FF6600','롯데':'#041E42','NC':'#315288','SSG':'#CE0E2D',
+    '두산':'#131230','키움':'#820024'
+};
+
+// 산포도
+new Chart(document.getElementById('scatterChart'), {
+    type: 'scatter',
+    data: {
+        datasets: SCATTER_DATA.map(d => ({
+            label: d.label,
+            data: [{x: d.x, y: d.y}],
+            backgroundColor: TEAM_COLORS[d.label] || '#888',
+            pointRadius: 10,
+            pointHoverRadius: 13,
+        }))
+    },
+    options: {
+        plugins: {
+            legend: { position: 'right' },
+            tooltip: {
+                callbacks: {
+                    label: ctx => `${ctx.dataset.label}  타율 ${ctx.parsed.x.toFixed(3)}  ERA ${ctx.parsed.y.toFixed(2)}`
+                }
+            }
+        },
+        scales: {
+            x: { title: { display: true, text: '팀 평균 타율' } },
+            y: { title: { display: true, text: '팀 평균 ERA' }, reverse: true }
+        }
+    }
+});
+
+// 홈런 Top10
+new Chart(document.getElementById('hrChart'), {
+    type: 'bar',
+    data: {
+        labels: TOP_HR.map(d => `${d.name} (${d.team})`),
+        datasets: [{
+            label: '홈런',
+            data: TOP_HR.map(d => d.hr),
+            backgroundColor: TOP_HR.map(d => TEAM_COLORS[d.team] || '#1a237e'),
+        }]
+    },
+    options: {
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true, title: { display: true, text: '홈런' } } }
+    }
+});
+
+// 타율 분포
+new Chart(document.getElementById('histChart'), {
+    type: 'bar',
+    data: {
+        labels: HIST_LABELS,
+        datasets: [{
+            label: '선수 수',
+            data: HIST_DATA,
+            backgroundColor: '#3949ab',
+            borderRadius: 4,
+        }]
+    },
+    options: {
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { title: { display: true, text: '타율 구간' } },
+            y: { beginAtZero: true, title: { display: true, text: '선수 수' } }
+        }
+    }
+});
+</script>
+{% endblock %}

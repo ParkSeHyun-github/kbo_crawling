@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+db.sqlite3
+crawl_status.json
+crawler/html_dump.txt
+crawler/crawl_result.txt
+crawler/standing_result.txt
+crawler/result.txt
+crawler/su_result.txt
+erd.png
+*.log
+.env
+su_result.txt

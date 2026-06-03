@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KBO 성적 대시보드</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans KR', sans-serif; background: #f5f5f5; color: #333; }
+        nav { background: #1a237e; padding: 14px 24px; display: flex; align-items: center; gap: 24px; }
+        nav h1 { color: white; font-size: 20px; }
+        nav a { color: #90caf9; text-decoration: none; font-size: 15px; }
+        nav a:hover { color: white; }
+        .nav-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+        .db-btn { display: flex; flex-direction: column; align-items: center; background: #283593; color: #90caf9; border: 1px solid #3949ab; border-radius: 4px; padding: 5px 12px; font-size: 12px; text-decoration: none; line-height: 1.4; }
+        .db-btn span { font-size: 10px; color: #ffd54f; }
+        .crawl-btn { background: #ffd54f; color: #1a237e; border: none; border-radius: 4px; padding: 7px 14px; font-size: 13px; font-weight: bold; cursor: pointer; }
+        .crawl-btn:disabled { background: #555; color: #aaa; cursor: not-allowed; }
+        .crawl-status { font-size: 12px; color: #90caf9; }
+        .container { max-width: 1100px; margin: 32px auto; padding: 0 16px; }
+        .search-bar { display: flex; gap: 8px; margin-bottom: 20px; }
+        .search-bar input { flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .search-bar button { padding: 8px 16px; background: #1a237e; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        th { background: #1a237e; color: white; padding: 12px 10px; text-align: center; font-size: 13px; }
+        td { padding: 10px; text-align: center; font-size: 14px; border-bottom: 1px solid #eee; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #e8eaf6; }
+        .empty { text-align: center; padding: 40px; color: #888; }
+        .filter-bar { background: white; border-radius: 8px; padding: 14px 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 16px; }
+        .filter-bar form { display: flex; align-items: center; gap: 12px; width: 100%; }
+        .filter-bar label { white-space: nowrap; font-size: 14px; color: #555; }
+        .filter-bar input[type=range] { flex: 1; accent-color: #1a237e; cursor: pointer; }
+        .filter-info { white-space: nowrap; font-size: 13px; color: #888; margin-left: auto; }
+        .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .chart-card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        .chart-card.wide { grid-column: 1 / -1; }
+        .chart-card h3 { margin-bottom: 4px; font-size: 15px; color: #1a237e; }
+        .chart-desc { font-size: 12px; color: #888; margin-bottom: 12px; }
+        .notice { background: #fff8e1; border-left: 4px solid #ffc107; padding: 12px 16px; border-radius: 4px; margin-top: 16px; font-size: 13px; color: #555; }
+    </style>
+</head>
+<body>
+    <nav>
+        <h1>⚾ KBO 대시보드</h1>
+        <a href="/standings/">팀 순위</a>
+        <a href="/">타자 순위</a>
+        <a href="/pitchers/">투수 순위</a>
+        <a href="/charts/">시각화 분석</a>
+        <a href="/predict/">성적 예측</a>
+        <div class="nav-right">
+            <span class="crawl-status" id="crawl-msg">
+                {% if crawl_status.state == 'running' %}
+                    ⏳ {{ crawl_status.message }}
+                {% elif crawl_status.state == 'done' %}
+                    ✅ {{ crawl_status.finished_at }} 완료
+                {% elif crawl_status.state == 'error' %}
+                    ❌ {{ crawl_status.message }}
+                {% endif %}
+            </span>
+            <select id="crawl-from" style="padding:6px; border-radius:4px; border:none; font-size:13px;">
+                {% for y in seasons reversed %}
+                <option value="{{ y }}" {% if y == 2020 %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+            <span style="color:#90caf9; font-size:13px;">~</span>
+            <select id="crawl-to" style="padding:6px; border-radius:4px; border:none; font-size:13px;">
+                {% for y in seasons %}
+                <option value="{{ y }}" {% if y == 2026 %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+            <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+                <button class="crawl-btn" id="crawl-btn"
+                    {% if crawl_status.state == 'running' %}disabled{% endif %}>
+                    🔄 새로고침
+                </button>
+                <span style="font-size:10px; color:#90caf9; opacity:0.7;">선수 DB 접속 (소모시간 있음)</span>
+            </div>
+        </div>
+    </nav>
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+    const btn      = document.getElementById('crawl-btn');
+    const msg      = document.getElementById('crawl-msg');
+    const fromSel  = document.getElementById('crawl-from');
+    const toSel    = document.getElementById('crawl-to');
+
+    function checkStatus() {
+        fetch('/crawl/status/')
+            .then(r => r.json())
+            .then(data => {
+                if (data.state === 'running') {
+                    btn.disabled = true;
+                    msg.textContent = '⏳ ' + data.message;
+                    setTimeout(checkStatus, 3000);
+                } else if (data.state === 'done') {
+                    btn.disabled = false;
+                    msg.textContent = '✅ ' + data.finished_at + ' 완료';
+                    location.reload();
+                } else if (data.state === 'error') {
+                    btn.disabled = false;
+                    msg.textContent = '❌ ' + data.message;
+                }
+            });
+    }
+
+    btn.addEventListener('click', () => {
+        const from = fromSel.value;
+        const to   = toSel.value;
+        if (parseInt(from) > parseInt(to)) {
+            alert('시작 연도가 종료 연도보다 클 수 없습니다.');
+            return;
+        }
+        btn.disabled = true;
+        msg.textContent = '⏳ 크롤링 시작 중...';
+
+        fetch('/crawl/', {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `season_from=${from}&season_to=${to}`,
+        })
+        .then(r => r.json())
+        .then(data => {
+            msg.textContent = '⏳ ' + data.message;
+            setTimeout(checkStatus, 3000);
+        });
+    });
+
+    // 페이지 로드 시 크롤링 중이면 폴링 시작
+    {% if crawl_status.state == 'running' %}
+    setTimeout(checkStatus, 3000);
+    {% endif %}
+    </script>
+</body>
+</html>

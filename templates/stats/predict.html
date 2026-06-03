@@ -1,0 +1,147 @@
+{% extends 'stats/base.html' %}
+
+{% block content %}
+<h2 style="margin-bottom: 4px;">{{ next_season }}시즌 성적 예측</h2>
+<p style="color:#888; font-size:13px; margin-bottom:16px;">
+    {{ season }}시즌 현재 성적 기반 / 과거 연속 시즌 데이터로 학습한 선형회귀 모델
+</p>
+
+<form class="search-bar" method="get">
+    <select name="season" onchange="this.form.submit()">
+        {% for y in seasons %}
+        <option value="{{ y }}" {% if y == season %}selected{% endif %}>{{ y }}시즌 기준</option>
+        {% endfor %}
+    </select>
+    <label style="font-size:13px; color:#555;">타자 최소</label>
+    <input type="number" name="min_batter_games" value="{{ min_batter_games }}" min="0" max="144" style="width:60px; padding:6px; border:1px solid #ccc; border-radius:4px;">
+    <label style="font-size:13px; color:#555;">투수 최소</label>
+    <input type="number" name="min_pitcher_games" value="{{ min_pitcher_games }}" min="0" max="144" style="width:60px; padding:6px; border:1px solid #ccc; border-radius:4px;">
+    <button type="submit">적용</button>
+</form>
+
+{% if no_data %}
+<p class="empty">연속 시즌 데이터가 부족합니다. 2개 이상의 시즌을 크롤링해주세요.</p>
+{% else %}
+
+<!-- 모델 정확도 -->
+<div style="display:flex; gap:16px; margin-bottom:20px;">
+    <div class="chart-card" style="flex:1;">
+        <h3>타자 모델 R² 점수</h3>
+        <p style="font-size:12px; color:#888; margin-bottom:10px;">1.0에 가까울수록 정확 · 피처: 타율/홈런/타점/안타/OPS/경기수 + 경기당 비율/장타성향/출전률</p>
+        <table>
+            <thead><tr><th>지표</th><th>R²</th><th>평가</th></tr></thead>
+            <tbody>
+                {% for k, v in batter_scores.items %}
+                <tr>
+                    <td>{{ k|upper }}</td>
+                    <td>{{ v }}</td>
+                    <td>{% if v >= 0.7 %}✅ 좋음{% elif v >= 0.4 %}⚠️ 보통{% else %}❌ 낮음{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="chart-card" style="flex:1;">
+        <h3>투수 모델 R² 점수</h3>
+        <p style="font-size:12px; color:#888; margin-bottom:10px;">1.0에 가까울수록 예측 정확도 높음</p>
+        <table>
+            <thead><tr><th>지표</th><th>R²</th><th>평가</th></tr></thead>
+            <tbody>
+                {% for k, v in pitcher_scores.items %}
+                <tr>
+                    <td>{{ k|upper }}</td>
+                    <td>{{ v }}</td>
+                    <td>{% if v >= 0.7 %}✅ 좋음{% elif v >= 0.4 %}⚠️ 보통{% else %}❌ 낮음{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 타자 예측 -->
+{% if batter_predictions %}
+<h3 style="margin-bottom:10px;">타자 {{ next_season }}시즌 예측 (타율 순)</h3>
+<table style="margin-bottom:32px;">
+    <thead>
+        <tr>
+            <th>순위</th><th>선수</th><th>팀</th>
+            <th>현재 타율</th><th>예측 타율</th>
+            <th>현재 HR</th><th>예측 HR</th>
+            <th>현재 RBI</th><th>예측 RBI</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for b in batter_predictions %}
+        <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><strong>{{ b.name }}</strong></td>
+            <td>{{ b.team }}</td>
+            <td>{{ b.cur_avg }}</td>
+            <td class="{% if b.pred_avg > b.cur_avg %}up{% elif b.pred_avg < b.cur_avg %}down{% endif %}">
+                {{ b.pred_avg }}
+                {% if b.pred_avg > b.cur_avg %}▲{% elif b.pred_avg < b.cur_avg %}▼{% endif %}
+            </td>
+            <td>{{ b.cur_hr }}</td>
+            <td class="{% if b.pred_hr > b.cur_hr %}up{% elif b.pred_hr < b.cur_hr %}down{% endif %}">
+                {{ b.pred_hr }}
+                {% if b.pred_hr > b.cur_hr %}▲{% elif b.pred_hr < b.cur_hr %}▼{% endif %}
+            </td>
+            <td>{{ b.cur_rbi }}</td>
+            <td class="{% if b.pred_rbi > b.cur_rbi %}up{% elif b.pred_rbi < b.cur_rbi %}down{% endif %}">
+                {{ b.pred_rbi }}
+                {% if b.pred_rbi > b.cur_rbi %}▲{% elif b.pred_rbi < b.cur_rbi %}▼{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<!-- 투수 예측 -->
+{% if pitcher_predictions %}
+<h3 style="margin-bottom:10px;">투수 {{ next_season }}시즌 예측 (ERA 순)</h3>
+<table>
+    <thead>
+        <tr>
+            <th>순위</th><th>선수</th><th>팀</th><th>역할</th>
+            <th>현재 ERA</th><th>예측 ERA</th>
+            <th>현재 WHIP</th><th>예측 WHIP</th>
+            <th>현재 삼진</th><th>예측 삼진</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in pitcher_predictions %}
+        <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><strong>{{ p.name }}</strong></td>
+            <td>{{ p.team }}</td>
+            <td><span style="font-size:11px;background:{% if p.role == '선발' %}#e3f2fd{% else %}#f3e5f5{% endif %};padding:2px 6px;border-radius:10px;">{{ p.role }}</span></td>
+            <td>{{ p.cur_era }}</td>
+            <td class="{% if p.pred_era < p.cur_era %}up{% elif p.pred_era > p.cur_era %}down{% endif %}">
+                {{ p.pred_era }}
+                {% if p.pred_era < p.cur_era %}▲{% elif p.pred_era > p.cur_era %}▼{% endif %}
+            </td>
+            <td>{{ p.cur_whip }}</td>
+            <td class="{% if p.pred_whip < p.cur_whip %}up{% elif p.pred_whip > p.cur_whip %}down{% endif %}">
+                {{ p.pred_whip }}
+                {% if p.pred_whip < p.cur_whip %}▲{% elif p.pred_whip > p.cur_whip %}▼{% endif %}
+            </td>
+            <td>{{ p.cur_so }}</td>
+            <td class="{% if p.pred_so > p.cur_so %}up{% elif p.pred_so < p.cur_so %}down{% endif %}">
+                {{ p.pred_so }}
+                {% if p.pred_so > p.cur_so %}▲{% elif p.pred_so < p.cur_so %}▼{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+{% endif %}
+
+<style>
+td.up   { color: #1565c0; font-weight: bold; }
+td.down { color: #c62828; font-weight: bold; }
+</style>
+{% endblock %}

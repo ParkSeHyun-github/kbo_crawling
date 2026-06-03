@@ -1,0 +1,65 @@
+{% extends 'stats/base.html' %}
+
+{% block content %}
+<h2 style="margin-bottom: 16px;">투수 순위 — {{ season }}시즌</h2>
+
+<form class="search-bar" method="get">
+    <select name="season">
+        {% for y in seasons %}
+        <option value="{{ y }}" {% if y == season %}selected{% endif %}>{{ y }}시즌</option>
+        {% endfor %}
+    </select>
+    <input type="text" name="q" value="{{ query }}" placeholder="선수 이름 검색...">
+    <button type="submit">검색</button>
+</form>
+
+<div class="filter-bar">
+    <form method="get" id="filter-form">
+        <input type="hidden" name="season" value="{{ season }}">
+        <input type="hidden" name="q" value="{{ query }}">
+        <label>최소 경기수: <strong id="min-games-val">{{ min_games }}</strong>경기 이상</label>
+        <input type="range" name="min_games" id="min-games-slider"
+               min="0" max="144" step="1" value="{{ min_games }}"
+               oninput="document.getElementById('min-games-val').textContent=this.value"
+               onchange="document.getElementById('filter-form').submit()">
+        <span class="filter-info">{{ filtered }}명 / 전체 {{ total }}명</span>
+    </form>
+</div>
+
+{% if pitchers %}
+<table>
+    <thead>
+        <tr>
+            <th>순위</th>
+            <th>선수</th>
+            <th>팀</th>
+            <th>경기</th>
+            <th>ERA</th>
+            <th>승</th>
+            <th>패</th>
+            <th>세이브</th>
+            <th>삼진</th>
+            <th>WHIP</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in pitchers %}
+        <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><strong>{{ p.name }}</strong></td>
+            <td>{{ p.team }}</td>
+            <td>{{ p.games }}</td>
+            <td>{{ p.era|floatformat:2 }}</td>
+            <td>{{ p.wins }}</td>
+            <td>{{ p.losses }}</td>
+            <td>{{ p.saves }}</td>
+            <td>{{ p.strikeouts }}</td>
+            <td>{{ p.whip|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty">조건에 맞는 선수가 없습니다.</p>
+{% endif %}
+{% endblock %}

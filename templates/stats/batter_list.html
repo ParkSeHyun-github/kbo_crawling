@@ -1,0 +1,63 @@
+{% extends 'stats/base.html' %}
+
+{% block content %}
+<h2 style="margin-bottom: 16px;">타자 순위 — {{ season }}시즌</h2>
+
+<form class="search-bar" method="get">
+    <select name="season">
+        {% for y in seasons %}
+        <option value="{{ y }}" {% if y == season %}selected{% endif %}>{{ y }}시즌</option>
+        {% endfor %}
+    </select>
+    <input type="text" name="q" value="{{ query }}" placeholder="선수 이름 검색...">
+    <button type="submit">검색</button>
+</form>
+
+<div class="filter-bar">
+    <form method="get" id="filter-form">
+        <input type="hidden" name="season" value="{{ season }}">
+        <input type="hidden" name="q" value="{{ query }}">
+        <label>최소 경기수: <strong id="min-games-val">{{ min_games }}</strong>경기 이상</label>
+        <input type="range" name="min_games" id="min-games-slider"
+               min="0" max="144" step="1" value="{{ min_games }}"
+               oninput="document.getElementById('min-games-val').textContent=this.value"
+               onchange="document.getElementById('filter-form').submit()">
+        <span class="filter-info">{{ filtered }}명 / 전체 {{ total }}명</span>
+    </form>
+</div>
+
+{% if batters %}
+<table>
+    <thead>
+        <tr>
+            <th>순위</th>
+            <th>선수</th>
+            <th>팀</th>
+            <th>경기</th>
+            <th>타율</th>
+            <th>홈런</th>
+            <th>타점</th>
+            <th>안타</th>
+            <th>OPS</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for b in batters %}
+        <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><strong>{{ b.name }}</strong></td>
+            <td>{{ b.team }}</td>
+            <td>{{ b.games }}</td>
+            <td>{{ b.avg|floatformat:3 }}</td>
+            <td>{{ b.hr }}</td>
+            <td>{{ b.rbi }}</td>
+            <td>{{ b.hits }}</td>
+            <td>{{ b.ops|floatformat:3 }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty">조건에 맞는 선수가 없습니다.</p>
+{% endif %}
+{% endblock %}
