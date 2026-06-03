@@ -11,6 +11,9 @@
 
 ## 인터페이스
 1. 기본 화면
+     
 ![Screenshot](screenshot.png)
+
 2. 시각화 분석 화면
+
 ![Screenshot2](screenshot_charts.png)
