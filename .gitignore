@@ -9,7 +9,8 @@ crawler/crawl_result.txt
 crawler/standing_result.txt
 crawler/result.txt
 crawler/su_result.txt
-erd.png
 *.log
 .env
 su_result.txt
+ml_result.txt
+ml_models/

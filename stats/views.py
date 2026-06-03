@@ -4,31 +4,54 @@ import subprocess
 import sys
 from datetime import datetime
 
+import joblib
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 
-# 모델 캐시 — 학습 데이터 수가 바뀔 때만 재학습
-_model_cache = {}
+from django.conf import settings
+
+MODEL_DIR = os.path.join(settings.BASE_DIR, 'ml_models')
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 
-def _cache_key(model_type, min_games):
+def _model_path(model_type, min_games):
+    return os.path.join(MODEL_DIR, f'{model_type}_{min_games}.pkl')
+
+
+def _meta_path(model_type, min_games):
+    return os.path.join(MODEL_DIR, f'{model_type}_{min_games}.meta.json')
+
+
+def _current_count(model_type):
     if model_type == 'batter':
-        count = Batter.objects.count()
-    else:
-        count = Pitcher.objects.count()
-    return (model_type, min_games, count)
+        return Batter.objects.count()
+    return Pitcher.objects.count()
 
 
 def get_cached_model(model_type, min_games, build_fn):
-    key = _cache_key(model_type, min_games)
-    if key not in _model_cache:
-        _model_cache[key] = build_fn(min_games)
-    return _model_cache[key]
+    """디스크 캐시 우선 — DB 데이터 수 변경 시에만 재학습"""
+    mp = _model_path(model_type, min_games)
+    meta_p = _meta_path(model_type, min_games)
+    count = _current_count(model_type)
 
-from django.conf import settings
+    # 메타 파일로 저장 시점 카운트 확인
+    if os.path.exists(mp) and os.path.exists(meta_p):
+        with open(meta_p) as f:
+            meta = json.load(f)
+        if meta.get('count') == count:
+            return joblib.load(mp)   # ✅ 디스크에서 즉시 로드
+
+    # 재학습 필요
+    result = build_fn(min_games)
+    if result:
+        joblib.dump(result, mp)
+        with open(meta_p, 'w') as f:
+            json.dump({'count': count}, f)
+    return result
+
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.db.models import Avg
